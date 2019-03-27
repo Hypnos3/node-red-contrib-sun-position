@@ -7,21 +7,10 @@ const util = require('util');
 const path = require('path');
 
 const hlp = require(path.join(__dirname, '/lib/dateTimeHelper.js'));
+const cron = require('cron');
 
 module.exports = function (RED) {
     'use strict';
-
-    function tsGetScheduleTime(time, limit) {
-        const now = new Date();
-        let millisec = time.getTime() - now.getTime();
-        if (limit) {
-            while (millisec < limit) {
-                millisec += 86400000; // 24h
-            }
-        }
-
-        return millisec;
-    }
 
     function tsSetAddProp(node, msg, type, name, valueType, value, format, offset, offsetType, multiplier, days) {
         // node.debug(`tsSetAddProp  ${msg}, ${type}, ${name}, ${valueType}, ${value}, ${format}, ${offset}, ${offsetType}, ${multiplier}, ${days}`);
@@ -59,7 +48,7 @@ module.exports = function (RED) {
         // Retrieve the config node
         this.positionConfig = RED.nodes.getNode(config.positionConfig);
         // this.debug('initialize timeInjectNode ' + util.inspect(config));
-
+        this.cronjob = null;
         this.time = config.time;
         this.timeType = config.timeType || 'none';
         this.timeDays = config.timeDays;
@@ -80,7 +69,6 @@ module.exports = function (RED) {
 
         this.recalcTime = (config.recalcTime || 2) * 3600000;
 
-        this.timeOutObj = null;
         this.intervalObj = null;
         this.nextTime = null;
         this.nextTimeAlt = null;
@@ -95,9 +83,9 @@ module.exports = function (RED) {
             node.nextTime = null;
             node.nextTimeAlt = null;
 
-            if (node.timeOutObj) {
-                clearTimeout(node.timeOutObj);
-                node.timeOutObj = null;
+            if (node.cronjob) {
+                node.cronjob.stop();
+                node.cronjob = null;
             }
 
             if (node.timeType !== 'none' && node.positionConfig) {
@@ -143,23 +131,21 @@ module.exports = function (RED) {
                     return { state:'error', done: false, statusMsg: 'internal error!', errorMsg: 'Invalid time format'};
                 }
 
-                let millisec = tsGetScheduleTime(node.nextTime, 10);
+                let nextTime = node.nextTime;
                 const isAlt = (node.nextTimeAlt);
                 if (isAlt) {
-                    const millisecAlt = tsGetScheduleTime(node.nextTimeAlt, 10);
-                    if (millisecAlt < millisec) {
-                        millisec = millisecAlt;
+                    if (nextTime < node.nextTimeAlt) {
+                        nextTime = node.nextTimeAlt;
                         isAltFirst = true;
                     }
                 }
-
-                // node.debug('timeout ' + node.nextTime + ' is in ' + millisec + 'ms (isAlt=' + isAlt + ' isAltFirst=' + isAltFirst + ')');
-                node.timeOutObj = setTimeout((isAlt, isAltFirst) => {
+                node.cronjob = new cron.CronJob(nextTime, () => {
                     const msg = {
                         type: 'start',
                         timeData: {}
                     };
-                    node.timeOutObj = null;
+                    node.cronjob.stop();
+                    node.cronjob = null;
                     let useAlternateTime = false;
                     if (isAlt) {
                         let needsRecalc = false;
@@ -198,7 +184,7 @@ module.exports = function (RED) {
                         msg.timeData = node.nextTimeData;
                     }
                     node.emit('input', msg);
-                }, millisec, isAlt, isAltFirst);
+                }, null, true);
             }
 
             if (!isFixedTime && !node.intervalObj && (_onInit !== true)) {
@@ -219,7 +205,7 @@ module.exports = function (RED) {
                 });
                 return { state:'error', done: false, statusMsg: errorStatus, errorMsg: errorStatus };
             // if an error occurred, will retry in 10 minutes. This will prevent errors on initialization.
-            } else if (node.nextTimeAlt && node.timeOutObj) {
+            } else if (node.nextTimeAlt && node.cronjob) {
                 if (isAltFirst) {
                     node.status({
                         fill: 'green',
@@ -233,7 +219,7 @@ module.exports = function (RED) {
                         text: node.nextTime.toLocaleString() + ' / ' + node.nextTimeAlt.toLocaleTimeString()
                     });
                 }
-            } else if (node.nextTime && node.timeOutObj) {
+            } else if (node.nextTime && node.cronjob) {
                 node.status({
                     fill: 'green',
                     shape: 'dot',
@@ -246,8 +232,9 @@ module.exports = function (RED) {
         }
 
         this.on('close', () => {
-            if (node.timeOutObj) {
-                clearTimeout(node.timeOutObj);
+            if (node.cronjob) {
+                node.cronjob.stop();
+                node.cronjob = null;
             }
 
             if (node.intervalObj) {

@@ -86,7 +86,8 @@
     }
   },
   "dependencies": {
-    "util": ">=0.10.0"
+    "util": ">=0.10.0",
+    "cron": "1.7.0"
   },
   "devDependencies": {
     "camo-purge": "^1.0.2",
