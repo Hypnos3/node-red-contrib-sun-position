@@ -275,7 +275,7 @@ module.exports = function (RED) {
             }
             let fill = 'yellow';
             let shape = 'dot';
-            if ((node.nextTime !== null) && (typeof node.nextTime !== undefined) && (errorStatus === '')) {
+            if ((node.nextTime !== null) && (typeof node.nextTime !== 'undefined') && (errorStatus === '')) {
                 if (!hlp.isValidDate(node.nextTime)) {
                     hlp.handleError(this, 'Invalid time format "' + node.nextTime + '"', undefined, 'internal error!');
                     return { state:'error', done: false, statusMsg: 'Invalid time format!', errorMsg: 'Invalid time format'};

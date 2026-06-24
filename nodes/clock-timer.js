@@ -419,10 +419,6 @@ module.exports = function (RED) {
         // node.debug('checkRules --------------------');
         const livingRuleData = {};
         const nowNr = dNow.getTime();
-        const dayNr = dNow.getDay();
-        const dateNr = dNow.getDate();
-        const monthNr = dNow.getMonth();
-        const dayId =  hlp.getDayId(dNow);
         prepareRules(node, msg, tempData);
         // node.debug(`checkRules now=${dNow.toISOString()}, nowNr=${nowNr}, dayNr=${dayNr}, dateNr=${dateNr}, monthNr=${monthNr}, dayId=${dayId}, rules.count=${node.rules.count}, rules.lastUntil=${node.rules.lastUntil}`);
 
@@ -456,37 +452,60 @@ module.exports = function (RED) {
             if (!rule.timeLimited) {
                 return rule;
             }
-            if (rule.timeDays && rule.timeDays !== '*' && !rule.timeDays.includes(dayNr)) {
-                return null;
-            }
-            if (rule.timeMonths && rule.timeMonths !== '*' && !rule.timeMonths.includes(monthNr)) {
-                return null;
-            }
-            if (rule.timeOnlyOddDays && (dateNr % 2 === 0)) { // even
-                return null;
-            }
-            if (rule.timeOnlyEvenDays && (dateNr % 2 !== 0)) { // odd
-                return null;
-            }
-            if (rule.timeDateStart || rule.timeDateEnd) {
-                rule.timeDateStart.setFullYear(dNow.getFullYear());
-                rule.timeDateEnd.setFullYear(dNow.getFullYear());
-                if (rule.timeDateEnd > rule.timeDateStart) {
-                    // in the current year
-                    if (dNow < rule.timeDateStart || dNow > rule.timeDateEnd) {
-                        return null;
-                    }
-                } else {
-                    // switch between year from end to start
-                    if (dNow < rule.timeDateStart && dNow > rule.timeDateEnd) {
-                        return null;
-                    }
+
+            const candidateDates = [dNow];
+            if (rule.timeOp === cRuleUntil) {
+                const nextDay = new Date(dNow);
+                nextDay.setDate(nextDay.getDate() + 1);
+                candidateDates.push(nextDay);
+            } else if (rule.timeOp === cRuleFrom) {
+                const midnightToday = new Date(dNow.getFullYear(), dNow.getMonth(), dNow.getDate());
+                if (nowNr < midnightToday.getTime()) {
+                    const previousDay = new Date(dNow);
+                    previousDay.setDate(previousDay.getDate() - 1);
+                    candidateDates.push(previousDay);
                 }
             }
-            const num = getRuleTimeData(node, msg, rule, dNow);
-            // node.debug(`pos=${rule.pos} type=${rule.timeOpText} - ${rule.timeValue} - num=${num}- rule.timeData = ${ util.inspect(rule.timeData, { colors: true, compact: 40, breakLength: Infinity }) }`);
-            if (dayId === rule.timeData.dayId && num >=0 && (cmp(num) === true)) {
-                return rule;
+
+            for (const candidateDate of candidateDates) {
+                const dayNr = candidateDate.getDay();
+                const dateNr = candidateDate.getDate();
+                const monthNr = candidateDate.getMonth();
+                const dayId = hlp.getDayId(candidateDate);
+                if (rule.timeDays && rule.timeDays !== '*' && !rule.timeDays.includes(dayNr)) {
+                    continue;
+                }
+                if (rule.timeMonths && rule.timeMonths !== '*' && !rule.timeMonths.includes(monthNr)) {
+                    continue;
+                }
+                if (rule.timeOnlyOddDays && (dateNr % 2 === 0)) { // even
+                    continue;
+                }
+                if (rule.timeOnlyEvenDays && (dateNr % 2 !== 0)) { // odd
+                    continue;
+                }
+                if (rule.timeDateStart || rule.timeDateEnd) {
+                    const start = new Date(rule.timeDateStart);
+                    const end = new Date(rule.timeDateEnd);
+                    start.setFullYear(candidateDate.getFullYear());
+                    end.setFullYear(candidateDate.getFullYear());
+                    if (end > start) {
+                        // in the current year
+                        if (candidateDate < start || candidateDate > end) {
+                            continue;
+                        }
+                    } else {
+                        // switch between year from end to start
+                        if (candidateDate < start && candidateDate > end) {
+                            continue;
+                        }
+                    }
+                }
+                const num = getRuleTimeData(node, msg, rule, candidateDate);
+                // node.debug(`pos=${rule.pos} type=${rule.timeOpText} - ${rule.timeValue} - num=${num}- rule.timeData = ${ util.inspect(rule.timeData, { colors: true, compact: 40, breakLength: Infinity }) }`);
+                if (dayId === rule.timeData.dayId && num >=0 && (cmp(num) === true)) {
+                    return rule;
+                }
             }
             return null;
         };
